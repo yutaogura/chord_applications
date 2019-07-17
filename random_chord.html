@@ -1,0 +1,486 @@
+<html>
+<head>
+<title>選択式コード進行生成</title>
+<!-- load jquery -->
+<script type="text/javascript" src="./jquery-3.4.1.min.js"></script>
+<script src="./Tone.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.1.4/Chart.min.js"></script>
+
+<link rel="stylesheet" type="text/css" href="sample.css">
+<meta charset="UTF-8">
+</head>
+<body>
+     <p></p>
+    <table>
+        <tbody>
+        <tr>
+            <td> <div id="play-button"><input type="button" value="start"></div> </td>
+            <td> <div id="stop-button"><input type="button" value="stop"></div> </td>
+            <td> <div id="reset-button"><input type="button" value="reset"></div> </td>
+            <td> weight_matrix:
+                    <select id = "selector">
+                    <option value="random_weight">random_weight</option>
+                    <option value="1625">Ⅰ-Ⅵ-Ⅱ-Ⅴ</option>
+                    <option value="user1">user1</option>
+                    </select></td>
+            <td><div id="change_matrix_button"><input type="button" value="change_matrix"></div> </td>
+            <td></td>
+            <td><div id="counter">0</div></td>
+        </tr>
+        <tr>
+           <td></td>
+           <td></td> 
+           <td></td>
+           <td><input id = "range" type="range" value="1500" min="500" max="2000" step="1" oninput="document.getElementById('output1').value=this.value"></td>
+           <td><output id="output1">1500</output></td>
+        </tr>    
+        </tbody>
+    </table>    
+
+    <p></p>
+    <span id="chord">[---- display chord here ----]</span> 
+    <p></p>
+    <div id="matrix"></div>  
+
+    <p></p>
+    <table>
+    <tbody>
+    <tr>
+    <td><div id="good"><input type="button" value="good! (S)"></div></td>
+    <td><div id="not_good"><input type="button" value="Not good (D)"></div></td>
+    <td><select id = "change_rate">
+        <option value="5">5</option>
+        <option value="10">10</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+        <option value="1000">1000</option>
+        </select></td>
+    </tr>
+    </tbody>
+    </table>
+    <p></p>
+    <textarea id="prev_chord" readonly>[---- previous chord progression ----]</textarea> 
+
+
+    <script>
+//import Tone from tone;
+
+function makeTransitionTable(row,col,data,tableId="matrix"){
+    var rows=[];
+    var table = document.createElement("table");
+    table.setAttribute("id","tableArea");
+    table.setAttribute("width","100%");
+
+    // 空の表を作成
+    for(i = 0; i < row.length+1; i++){
+        rows.push(table.insertRow(-1));  // 行の追加
+        for(j = 0; j < col.length+1; j++){
+            cell=rows[i].insertCell(-1);
+            // 背景色の設定
+            if(i==0&&j==0){
+                cell.style.backgroundColor = "#bbb"; // ヘッダ行
+            }
+            else if(i==0){
+                cell.appendChild(document.createTextNode(col[j-1]));
+                cell.style.backgroundColor = "#bbb"; // ヘッダ行
+            }
+            else if(j==0){
+                cell.appendChild(document.createTextNode(row[i-1]));
+                cell.style.backgroundColor = "#bbb"; // ヘッダ行    
+            }else{
+                cell.appendChild(document.createTextNode(data[i-1][j-1]+"%"));
+                cell.style.backgroundColor = "#ddd"; // ヘッダ行以外
+            }
+        }
+    }
+    // 指定したdiv要素に表を加える
+    document.getElementById(tableId).appendChild(table);
+}
+
+function change_table(data,data_flag,tableId="matrix"){
+    var tables = document.getElementById("tableArea");
+  for(row = 0;row<12;row++){
+      for(col = 0;col<7;col++){
+          if(data_flag){
+          tables.rows[row+1].cells[col+1].innerHTML = data[row][col];
+          }else{
+          tables.rows[row+1].cells[col+1].innerHTML = data[row][col]+"%";
+          }
+      }
+  }
+}
+
+function reload_table(data,data_flag,tableId="matrix"){
+    var tables = document.getElementById("tableArea");
+  for(row = 0;row<12;row++){
+      for(col = 0;col<7;col++){
+          if(!data_flag){
+          tables.rows[row+1].cells[col+1].innerHTML = data[row][col];
+          }else{
+          tables.rows[row+1].cells[col+1].innerHTML = weight_data[row][col]+"%";
+          }
+      }
+  }
+}
+
+
+/*　グローバル変数　*/
+var data_flag = true;
+var counter = 0;
+var change_rate = 5;
+var tempo = 1500;
+
+var interval_name = ["P1","m2","M2","m3","M3","P4","+4","P5","+5","M6","m7","M7"];
+var chord_type_name =["maj7","min7","dom7","hdim7","dim7","minMaj7","aug7"];
+var row_index = interval_name;
+var col_index = chord_type_name;
+
+
+var chord_type_name =["maj7","min7","dom7","hdim7","dim7","minMaj7","aug7"];
+var root_note_name = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+
+
+var random = new Array(12);
+for(i=0;i<12;i++){
+    random[i] = new Array(7);
+    for(j=0;j<7;j++){
+        random[i][j] = 1;
+    }
+}
+
+//重み計算
+function calcu_weight (data){
+    var sum = 0;
+    for(i=0;i<data.length;i++){
+        for(j=0;j<data[i].length;j++){
+            sum += data[i][j];
+        }
+    }
+    var random_weight = new Array(12);
+    for(i=0;i<data.length;i++){
+        random_weight[i] = new Array(7);
+        for(j=0;j<data[i].length;j++){
+            random_weight[i][j] =Math.round((data[i][j] / sum) * 10000)/100 ;
+         }
+    }
+    return random_weight;
+}
+
+
+// dataにrandomを値渡し
+var data = new Array(12);
+for (i=0;i<12;i++){
+    data[i] = random[i].slice();
+}
+
+var weight_data = calcu_weight(random);
+
+makeTransitionTable(row_index,col_index,weight_data);
+
+
+document.getElementById('selector').addEventListener("click",function(){
+    var hoge = document.getElementById('selector').value;
+    console.log(hoge);
+  });
+
+document.getElementById('range').addEventListener('input',function(){
+    tempo = document.getElementById("range").value;
+});
+
+
+const synth = new Tone.Synth().toMaster();
+var piano = new Tone.Sampler({
+			"A0" : "A0.[mp3|ogg]",
+			"C1" : "C1.[mp3|ogg]",
+			"D#1" : "Ds1.[mp3|ogg]",
+			"F#1" : "Fs1.[mp3|ogg]",
+			"A1" : "A1.[mp3|ogg]",
+			"C2" : "C2.[mp3|ogg]",
+			"D#2" : "Ds2.[mp3|ogg]",
+			"F#2" : "Fs2.[mp3|ogg]",
+			"A2" : "A2.[mp3|ogg]",
+			"C3" : "C3.[mp3|ogg]",
+			"D#3" : "Ds3.[mp3|ogg]",
+			"F#3" : "Fs3.[mp3|ogg]",
+			"A3" : "A3.[mp3|ogg]",
+			"C4" : "C4.[mp3|ogg]",
+			"D#4" : "Ds4.[mp3|ogg]",
+			"F#4" : "Fs4.[mp3|ogg]",
+			"A4" : "A4.[mp3|ogg]",
+			"C5" : "C5.[mp3|ogg]",
+			"D#5" : "Ds5.[mp3|ogg]",
+			"F#5" : "Fs5.[mp3|ogg]",
+			"A5" : "A5.[mp3|ogg]",
+			"C6" : "C6.[mp3|ogg]",
+			"D#6" : "Ds6.[mp3|ogg]",
+			"F#6" : "Fs6.[mp3|ogg]",
+			"A6" : "A6.[mp3|ogg]",
+			"C7" : "C7.[mp3|ogg]",
+		},
+ {
+     "baseUrl":"./piano/",
+     "onload":function(){
+         consolo.log("loaded");
+     },
+     "atack" : 0,
+     "release" : 3
+ }
+ ).toMaster();
+ var reverb = new Tone.Freeverb().toMaster();
+ piano.volume.value = -6;
+
+
+//音を扱う定数
+var key_tonic = 0;
+var root_num = 0;
+
+var root_note_name3 = ["C3","C#3","D3","D#3","E3","F3","F#3","G3","G#3","A3","A#3","B3"];
+var root_note_name2 = ["C3","D3","E3","F3","G3","A3","B3"];
+var chroma_num = (root_num + key_tonic) % 12 ;
+var chroma_num2 = (root_num + key_tonic)  ;
+//chord_type_array 
+var maj_array = [0,4,7,11];
+var min_array = [0,3,7,10];
+var dom_array = [0,4,7,10];
+var hdim_array = [0,3,6,10];
+var dim7_array = [0,3,6,9];
+var minMaj7_array = [0,3,7,11];
+var aug7_array = [0,4,8,11];
+
+var chord_type =[maj_array,min_array,dom_array,hdim_array,dim7_array,minMaj7_array,aug7_array];
+
+var chord_type_diatonic =[maj_array,min_array,min_array,maj_array,dom_array,min_array,hdim_array];
+
+
+var chord_type_name_diatonic =["maj7","min7","min7","maj7","dom7","min7","hdim7"];  
+
+var duration = ['16n','8n','4n','2n'];
+
+var chord_progression_stack = [];
+
+var prev_chord_root = 0;
+var prev_chord_type = 0;
+var current_chord_root = 0;
+var interval_num = 0;
+var current_chord_type = 0; 
+
+var timer_id;
+
+
+var loop = function(chord_root_num,chord_type_num){
+
+    //ディスプレイスタック追加
+    if(chord_progression_stack.length == 8){
+        chord_progression_stack = [];
+        document.getElementById("prev_chord").value += "\n";
+    }
+    
+    //テキストエリア初期化
+    if(counter==0){
+        document.getElementById("prev_chord").value = "";
+        //console.log(root_note_name[current_chord_root],current_chord_type);
+    }else{
+        //console.log(root_note_name[prev_chord_root],prev_chord_type,interval_name[interval_num],root_note_name[current_chord_root],current_chord_type)
+    }
+    //カウンタ増加
+    counter += 1;
+    document.getElementById("counter").innerHTML = counter;
+
+    var tone_array = Tone.Frequency(root_note_name3[chord_root_num]).harmonize(chord_type[chord_type_num]);
+    var chord_tag = document.getElementById("chord");
+    var chord_name = root_note_name[chord_root_num] + chord_type_name[chord_type_num];
+    chord_progression_stack.push(chord_name);
+
+    //テキストエリア追加
+    document.getElementById("prev_chord").value += chord_name; 
+    //音が鳴る
+    piano.triggerAttackRelease(tone_array,"2n");
+    //console.log(interval_name[interval_num],chord_progression_stack,chord_name,"is なった");
+    chord_tag.innerHTML = chord_progression_stack;
+    
+    
+    //抽選
+    //度数の合計をとる
+    var sum = 0;
+    for(i=0;i<data.length;i++){
+        for(j=0;j<data[i].length;j++){
+            sum += data[i][j];
+        }
+    }
+    var r = Math.random() * sum;
+    var s = 0.0;
+    function choose_point(r,s,sum){
+            for(i = 0 ; i< 12;i++){
+                for(j = 0; j<7; j++){
+                    s += data[i][j];
+                    if(r < s){
+                        var obj = new Object();
+                        obj.i = i;
+                        obj.j = j;
+                        return obj;
+                    }
+                }
+            }
+        }
+    var a = choose_point(r,s,sum);
+
+    interval_num = a.i;
+    var next_chord_root_num = (chord_root_num + interval_num) % 12;
+    var next_chord_type_num =  a.j;
+    //console.log(interval_name[interval_num],chord_type_name[next_chord_type_num]);
+    document.getElementById("prev_chord").value += " ["+interval_name[interval_num]+"] "; 
+  
+    prev_chord_root = current_chord_root;
+    prev_chord_type = current_chord_type;
+    current_chord_root = next_chord_root_num;
+    current_chord_type = next_chord_type_num;
+
+    timer_id = setTimeout(function(){loop(next_chord_root_num,next_chord_type_num)},tempo);
+    //setTimeout(function(){synth.triggerAttackRelease("C7", "32n");},tempo/2);
+    }
+
+
+
+
+document.getElementById("play-button").onclick =function() {
+    chord_progression_stack = [];
+    var init_chord_root_num =  Math.floor(Math.random() * root_note_name3.length);
+    var init_chord_type_num =  Math.floor(Math.random() * chord_type.length);
+    current_chord_root = init_chord_root_num;
+    current_chord_type = init_chord_type_num;
+    loop(init_chord_root_num,init_chord_type_num);    
+};
+
+document.getElementById("stop-button").onclick = function() {
+    clearTimeout(timer_id);
+};
+
+document.getElementById("reset-button").onclick = function() {
+    counter = 0;
+    document.getElementById("counter").innerHTML = counter;
+    document.getElementById("prev_chord").value = "";
+    //dataにrandomを値渡し
+    for (i=0;i<12;i++){
+    data[i] = random[i].slice();
+    }
+    weight_data = calcu_weight(data);
+    console.log(data);
+    reload_table(data,data_flag);
+};
+
+//画面が読み込まれたときの初期化
+window.onload = function(){
+
+}
+
+/*
+評価
+*/
+function good_responce(){
+    if(counter > 1){           
+    data[interval_num][current_chord_type] += change_rate;
+    weight_data = calcu_weight(data);
+    reload_table(data,data_flag);
+    }else{
+        console.log("counter is 0")
+        ;//何もしない
+    }
+}
+
+function bad_responce(){
+    if(counter > 1){
+        for(i=0;i<12;i++){
+            for(j=0;j<7;j++){
+                if(i !=interval_num || j != current_chord_type){
+                    data[i][j] += change_rate;
+                }
+            }
+        }
+    weight_data = calcu_weight(data);
+    reload_table(data,data_flag);
+    }else{
+        console.log("counter is 0")
+        ;//何もしない
+    }
+}
+
+document.getElementById("good").onclick = function() {
+    //console.log("click");
+    good_responce();
+};
+
+document.getElementById("not_good").onclick = function() {
+    //console.log("click");
+    bad_responce();
+};
+//ボタン投下時
+window.addEventListener("keydown", handleKeydown);
+
+function handleKeydown(event){
+  // キーコード
+  var keyCode = event.keyCode;
+  console.log("押されたキーのコード : " + keyCode);
+  if(keyCode==83){
+      good_responce();
+  }else if(keyCode==68){
+      bad_responce();
+  }
+}
+
+document.getElementById('change_rate').addEventListener("click",function(){
+    var hoge = document.getElementById('change_rate').value;
+    change_rate = Number(hoge);
+  });
+
+/*
+*　　表クリック時
+*/
+//クリックされたら数増やす
+function addRowHandlers() {
+    var table = document.getElementById("tableArea");
+    for (i = 0;i < 13; i++) {
+        for(j = 0;j < 8;j++){
+        var currentCell = table.rows[i].cells[j];
+        var createClickHandler =  function(currentCell,i,j){
+                return function() {
+                    //console.log(i,j);
+                    if(j==0){
+                       for(k = 0; k<7;k++){ 
+                        data[i-1][k] += change_rate;
+                       }
+                    }else if(i==0){
+                       for(k = 0; k<12;k++){ 
+                        data[k][j-1] += change_rate;
+                       }
+                    }else{
+                    data[i-1][j-1] += change_rate; 
+                    }
+
+                    weight_data = calcu_weight(data);
+                    reload_table(data,data_flag);
+                };
+            };
+        currentCell.onclick = createClickHandler(currentCell,i,j);
+        }
+    }
+}
+//window.onloadに持ってく？
+addRowHandlers();
+
+//change_matrix
+document.getElementById("change_matrix_button").onclick = function() {
+    if(data_flag){
+        change_table(data,data_flag);
+        data_flag = false;
+    }else{
+        change_table(weight_data,data_flag);
+        data_flag = true;
+    }
+}
+
+
+
+
+</script>
+</body>
+</html>
